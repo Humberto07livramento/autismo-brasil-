@@ -1,0 +1,87 @@
+# 📦 Carregar bibliotecas
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(stringi)
+library(writexl)
+
+# === Caminhos dos arquivos ===
+shapefile_path <- "C:/Users/Humberto Lago/Documents/autismo/BR_Municipios_2024/BR_Municipios_2024.shp"
+csv_path       <- "C:/Users/Humberto Lago/Documents/autismo/autismo_municipios_simples_norm.csv"
+saida_png      <- "C:/Users/Humberto Lago/Documents/mapa_calor_municipios_clusters.png"
+saida_excel    <- "C:/Users/Humberto Lago/Documents/mapa_calor_municipios_clusters.xlsx"
+
+# === 1. Carregar shapefile dos municípios
+br_municipios <- st_read(shapefile_path, quiet = TRUE)
+
+# === 2. Carregar CSV com índice RP e nomes normalizados
+dados_indices <- read_csv(csv_path, show_col_types = FALSE)
+
+# === 3. Normalizar nome do município no shapefile
+br_municipios <- br_municipios %>%
+  mutate(nome_mun_norm = tolower(stringi::stri_trans_general(NM_MUN, "Latin-ASCII")))
+
+# === 4. Juntar dados usando os nomes normalizados
+mapa_completo <- br_municipios %>%
+  left_join(dados_indices, by = c("nome_mun_norm" = "municipio_norm"))
+
+# === 5. Criar clusters por quintis
+mapa_completo <- mapa_completo %>%
+  mutate(
+    cluster = ntile(RP, 5),
+    cluster_label = case_when(
+      cluster == 1 ~ "Muito Baixo",
+      cluster == 2 ~ "Baixo",
+      cluster == 3 ~ "Médio",
+      cluster == 4 ~ "Alto",
+      cluster == 5 ~ "Muito Alto",
+      TRUE ~ "Indefinido"
+    )
+  )
+
+# === 6. Gerar gráfico do mapa de calor
+grafico <- ggplot(mapa_completo) +
+  geom_sf(aes(fill = cluster_label), color = "gray30", size = 0.05) +
+  scale_fill_manual(
+    values = c(
+      "Muito Baixo" = "#f7fcf0",
+      "Baixo"       = "#ccebc5",
+      "Médio"       = "#a8ddb5",
+      "Alto"        = "#43a2ca",
+      "Muito Alto"  = "#0868ac"
+    ),
+    name = "Grupo de Incidência"
+  ) +
+  labs(
+    title = "Mapa de Calor por Município com Clusters",
+    subtitle = "Classificação de municípios por quintis do índice RP",
+    caption = "Fonte: Base própria + shapefile IBGE"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# === 7. Exibir o gráfico
+print(grafico)
+
+# === 8. Salvar imagem do gráfico em PNG
+ggsave(filename = saida_png, plot = grafico, width = 10, height = 12, dpi = 300)
+
+# === 9. Exportar tabela para Excel (sem geometria)
+write_xlsx(
+  mapa_completo %>%
+    st_drop_geometry() %>%
+    select(NM_MUN, RP, cluster_label),
+  path = saida_excel
+)
+
+# ✅ Confirmações
+cat("✅ Mapa salvo em:", saida_png, "\n")
+cat("✅ Planilha exportada para:", saida_excel, "\n")
